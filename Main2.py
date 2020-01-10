@@ -9,14 +9,15 @@ from pixtendv2l import PiXtendV2L
 import logging
 import RPi.GPIO as GPIO
 import webbrowser
+import json
+import requests
 
-'''LOG_FILENAME = 'Log.log'
-logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG)
 
-logging.debug('Debugging')'''
-
+moto_url = 'http://192.168.40.120:2001'
 
 p = PiXtendV2L()
+
+p.gpio0_ctrl = p.GPIO_INPUT
 
 GPIO.setmode(GPIO.BCM)
 
@@ -39,16 +40,13 @@ GPIO.setup(20,GPIO.OUT) ##for step
 
 
 
-step_count = 72727  ##number of step to run  change this to change where it stops
+step_count = 91  ##((Steps for 0.025Micrometers))No.of steps for one MicroMeter... number of step to run  change this to change where it stops (72727 steps for 25mm) (72.727 steps for 25 micrometers)bd
 delay = 0.001
 
 GPIO.output(21, GPIO.HIGH)
 
 
-
-#GPIO.input(26, GPIO.LOW) #projector kept low initially
-
-# create logger with 'spam_application'
+# create logger
 logger = logging.getLogger('log_application')
 logger.setLevel(logging.DEBUG)
 # create file handler which logs even debug messages
@@ -107,6 +105,14 @@ class Main(Frame):
 
 
     def create_widgets(self):
+        
+        
+        self.GPIOClean = Button(self.frame)
+        self.GPIOClean["text"] = "Clean GPIO"
+        self.GPIOClean["bg"] = "gray"
+        self.GPIOClean["fg"] = "green"
+        self.GPIOClean["command"] = self.GPIO
+        self.GPIOClean.place(x=5, y=95, width=100, height=20)
 
         # -----------------------------------------------------
         # Button for LIGHT
@@ -164,23 +170,23 @@ class Main(Frame):
         # -----------------------------------------------------
         
         self.clockwise = Button(self.frame)
-        self.clockwise["text"] = "25 mm+"
+        self.clockwise["text"] = "25 microm+"
         self.clockwise["command"] = self.stepper_25cw
         self.clockwise.place(x=65, y=30, width=100, height=20)   
         
         self.anticlockwise = Button(self.frame)
-        self.anticlockwise["text"] = "25 mm-"
+        self.anticlockwise["text"] = "25 microm-"
         self.anticlockwise["command"] = self.stepper_25ccw
         self.anticlockwise.place(x=65, y=60, width=100, height=20)
         
         self.clockwise = Button(self.frame)
-        self.clockwise["text"] = "50 mm+"
+        self.clockwise["text"] = "50 microm+"
         #self.clockwise["bg"] = "green"
         self.clockwise["command"] = self.stepper_50cw
         self.clockwise.place(x=165, y=30, width=100, height=20)  
         
         self.anticlockwise = Button(self.frame)
-        self.anticlockwise["text"] = "50 mm-"
+        self.anticlockwise["text"] = "50 microm-"
         self.anticlockwise["command"] = self.stepper_50ccw
         self.anticlockwise.place(x=165, y=60, width=100, height=20)
 
@@ -192,6 +198,21 @@ class Main(Frame):
         self.stopping["text"] = "Aboart"
         self.stopping["command"] = self.stop
         self.stopping.place(x=165, y=5, width=100, height=20)
+        
+        self.printing = Button(self.frame)
+        self.printing["text"] = "Print"
+        self.printing["command"] = self.Printprocess
+        self.printing.place(x=180, y=180, width=100, height=20)
+        
+        self.work = Button(self.frame)
+        self.work["text"] = "Z-axis Home"
+        self.work["command"] = self.stepperhome
+        self.work.place(x=200, y=200, width=100, height=20)
+        
+        self.ma = Button(self.frame)
+        self.ma["text"] = "Yo"
+        self.ma["command"] = self.motoHome
+        self.ma.place(x=220, y=220)
     #stepper.setup()    
         # -----------------------------------------------------
         # Button for Opening Mioto WebUI
@@ -224,31 +245,152 @@ class Main(Frame):
         self.editmenu.add_command(label="Undo")
         self.editmenu.add_command(label="Redo")
         
-#step_count has been given in the initial steps which are for the calculation of 25mm in microsteps
-    def stepper_25cw(self):
+#step_count has been given in the initial steps which are for the calculation of 25micrometres
+############ Note that GPIO.cleanup() has seperate button to clean the GPIO at the end of program or after the usage #####################
+    def stepperhome(self):
         delay = 0.001
         GPIO.setmode(GPIO.BCM)
+        GPIO.setup(21, GPIO.OUT)
+        GPIO.setup(20,GPIO.OUT)
+        print("Homing process")
+        #if the motor is at the top end switch resting
+        if (GPIO.input(19) == False):
+            GPIO.output(21, GPIO.HIGH)
+            #range is no . of steps to reach the home(reference point)
+            for x in range(24600):
+                GPIO.output(20, GPIO.HIGH)
+                time.sleep(delay)
+                GPIO.output(20, GPIO.LOW)
+                time.sleep(delay)
+                print("Going towards HOME")
+        #if the motor is resting at the down end switch
+        if (p.gpio0 == 0):
+            while True:
+                GPIO.output(21, GPIO.LOW)
+                GPIO.output(20, GPIO.HIGH)
+                time.sleep(delay)
+                GPIO.output(20, GPIO.LOW)
+                time.sleep(delay)
+                print("homing towards top")
+                #motor should run until the top end switch and then moving to home reference point
+                if (GPIO.input(19) == False):
+                    GPIO.output(21, GPIO.HIGH)
+                    for x in range(24600):
+                        GPIO.output(20, GPIO.HIGH)
+                        time.sleep(delay)
+                        GPIO.output(20, GPIO.LOW)
+                        time.sleep(delay)
+                        print("Going towards HOME")
+                    break
+                    print("homed")
+        #If the motor placed niether at the top end nor the bottom end
+        else:
+            if (p.gpio0 == 1) and (GPIO.input(19) == True):
+                GPIO.output(21, GPIO.LOW)
+                while True:
+                    GPIO.output(20, GPIO.HIGH)
+                    time.sleep(delay)
+                    print("Going top")
+                    GPIO.output(20, GPIO.LOW)
+                    time.sleep(delay)
+                    if (GPIO.input(19) == False):
+                        GPIO.output(21, GPIO.HIGH)
+                        for x in range(24640):
+                            GPIO.output(20, GPIO.HIGH)
+                            time.sleep(delay)
+                            GPIO.output(20, GPIO.LOW)
+                            time.sleep(delay)
+                            print("Going towards HOME")
+                        break
+                        print("homed")
+        
+        self.ret = self.request(moto_url, 'motor_enable')
+        print(self.ret)
+        
+        self.ret = self.request(moto_url, 'home')
+        print(self.ret)
+        time.sleep(3)
+    """
+    def man(self):
+        delay = 0.001
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(21, GPIO.OUT)
+        GPIO.setup(20,GPIO.OUT)
+        print("Homing process")
+        if (GPIO.input(19) == False):
+            GPIO.output(21, GPIO.HIGH)
+            for x in range(24669):
+                GPIO.output(20, GPIO.HIGH)
+                time.sleep(delay)
+                GPIO.output(20, GPIO.LOW)
+                time.sleep(delay)
+                print("Going towards HOME")
+        print("finish")
+    """
+    #Stepper movement of 25micrometers(towards down)
+    def stepper_25cw(self):
+        delay = 0.00025
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(21, GPIO.OUT)
+        GPIO.setup(20, GPIO.OUT)
         GPIO.output(21, GPIO.HIGH)
-        print (" Drive CW ", step_count ,"steps")
-        for x in range(step_count):
+        print (" Drive CW ", 100*step_count ,"steps")
+        for x in range(100*step_count):
             GPIO.output(20, GPIO.HIGH)
             sleep(delay)
             GPIO.output(20, GPIO.LOW)
             sleep(delay)
-            if p.digital_in0 == p.OFF:
+            if p.gpio0 == 0:
                 break
-        GPIO.cleanup()
+            print(x)
         print("Stop")
-        sleep(5)
-
+        sleep(delay)
+    #stepper movement of 25 micro meters anti-clockwise(top)
     def stepper_25ccw(self):
+        delay = 0.00025
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(21, GPIO.OUT)
+        GPIO.setup(20, GPIO.OUT)
+        print (" Drive CCW ", 100*step_count ,"steps")
+        GPIO.output(21, GPIO.LOW)
+        for x in range(100*step_count):
+            GPIO.output(20, GPIO.HIGH)
+            sleep(delay)
+            GPIO.output(20, GPIO.LOW)
+            sleep(delay)
+            if (GPIO.input(19) == False):
+                break
+            print(x)
+        print("Homed")
+        sleep(delay)
+        # end of program
+        print ("End program")
+    
+    def stepper_50cw(self):
         delay = 0.001
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(21, GPIO.OUT)
         GPIO.setup(20, GPIO.OUT)
-        print (" Drive CCW ", step_count ,"steps")
+        GPIO.output(21, GPIO.HIGH)
+        print (" Drive CW ", 200*step_count ,"steps")
+        for x in range(200*step_count):
+            GPIO.output(20, GPIO.HIGH)
+            sleep(delay)
+            GPIO.output(20, GPIO.LOW)
+            sleep(delay)
+            if p.gpio0 == 0:
+                break
+        print("Stop")
+        sleep(delay)
+
+    def stepper_50ccw(self):
+        delay = 0.001
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(21, GPIO.OUT)
+        GPIO.setup(20, GPIO.OUT)
+        print (" Drive CCW ", 200*step_count ,"steps")
         GPIO.output(21, GPIO.LOW)
-        for x in range(step_count):
+        for x in range(200*step_count):
             GPIO.output(20, GPIO.HIGH)
             sleep(delay)
             GPIO.output(20, GPIO.LOW)
@@ -257,49 +399,45 @@ class Main(Frame):
                 break
         print("Homed")
         sleep(delay)
-        GPIO.cleanup()
         # end of program
         print ("End program")
     
-    def stepper_50cw(self):
-        delay = 0.001
-        GPIO.setmode(GPIO.BCM)
-        GPIO.output(21, GPIO.HIGH)
-        print (" Drive CW ", 2*step_count ,"steps")
-        for x in range(step_count):
-            GPIO.output(20, GPIO.HIGH)
-            sleep(delay)
-            GPIO.output(20, GPIO.LOW)
-            sleep(delay)
-            if p.digital_in0 == p.OFF:
-                break
-        print("Stop")
-        sleep(5)
-        GPIO.cleanup()
+    def request(self, url, method, params={}, timeout=3):
+        headers = {'content-type': 'application/json'}
+        jsonid = 1
 
-    def stepper_50ccw(self):
-        delay = 0.001
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(21, GPIO.OUT)
-        GPIO.setup(20, GPIO.OUT)
-        print (" Drive CCW ", 2*step_count ,"steps")
-        GPIO.output(21, GPIO.LOW)
-        for x in range(step_count):
-            GPIO.output(20, GPIO.HIGH)
-            sleep(delay)
-            GPIO.output(20, GPIO.LOW)
-            sleep(delay)
-            if (GPIO.input(19) == False):
-                break
+        payload = {
+            "method": method,
+            "params": params,
+            "jsonrpc": "2.0",
+            "id": jsonid
+        }
 
-        # end of program
-        print ("Homed")
-        GPIO.cleanup()
+        payload = json.dumps(payload).encode()
+
+        try:
+            r = requests.post(url,
+                            data=payload,
+                            headers=headers,
+                            timeout=timeout)
+        except Exception as e:
+            print('error in json rpc request', e)
+            return False
+
+        return r.json()
         
-    def stop(self):#Stop scanning by setting the global flag to False."""
+    def motoHome(self):
+        self.ret = self.request(moto_url, 'motor_enable')
+        print(self.ret)
+        
+        self.ret = self.request(moto_url, 'home')
+        print(self.ret)
+
+    def stop(self):#Stop scanning by setting the global flag to False.
         global running
         running = False
-        
+
+    #To turn the Projector on with the Asic_ready
     def on(self):
         GPIO.setup(26, GPIO.OUT)
         GPIO.setup(12, GPIO.IN)
@@ -313,42 +451,40 @@ class Main(Frame):
         print("Projecor ON")
 
         sleep(1)
-        #GPIO.cleanup()
         print("end")
         
+    #To turn off the projector
     def off(self):
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(26, GPIO.OUT)
         GPIO.setup(16, GPIO.IN)
         GPIO.setup(12, GPIO.IN)
-        
-        #GPIO.output(12, GPIO.HIGH)
-        #if GPIO.input(12, GPIO.HIGH):
         GPIO.output(26,GPIO.LOW)
+        GPIO.input(12) == 0
+        GPIO.input(16) == 0
         print("Projector off")
         sleep(1)
-        #GPIO.cleanup()
-    
+
+    #To turn the projector LED on
     def led1(self):
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(26, GPIO.OUT)
         GPIO.setup(13, GPIO.OUT)
-        if (GPIO.output(26, GPIO.HIGH)):
-            GPIO.output(13, GPIO.HIGH)
-            print("P LED On")
+        GPIO.output(13, GPIO.HIGH)
+        print("P LED On")
         sleep(1)
-        #GPIO.cleanup()
-    
+
+    #To turn the projector LED off
     def led2(self):
         GPIO.setmode(GPIO.BCM)
+        GPIO.setup(26, GPIO.OUT)
         GPIO.setup(13, GPIO.OUT)
-        if GPIO.output(13, GPIO.HIGH):
-            GPIO.output(13, GPIO.LOW)
-            print("P LED Off")
+        GPIO.output(13, GPIO.LOW)
+        print("P LED Off")
         sleep(1)
-        GPIO.cleanup()
+
     
-    
+    #Open and load the image file that we wanted to print(Select a folder)
     def open_image(self):
         self.image_path = Filedialog.directory(self)
         if self.image_path != "":
@@ -385,11 +521,11 @@ class Main(Frame):
     def relay_on(self):
 
         p.relay1 = p.ON
-
+        
     def relay_off(self):
 
         p.relay1 = p.OFF
-
+        
     def relay_on0(self):
 
         p.relay0 = p.ON
@@ -407,8 +543,61 @@ class Main(Frame):
         p.relay2 = p.OFF
 
     def onExit(self):
-        self.quit()
+        self.root.destroy()
+        exit()
+    
+    def GPIO(self):#GPIO cleanup has to do manually after the end of program.
+        GPIO.cleanup()
+        print("GPIO.clean")
 
+    def Printprocess(self):
+        if GPIO.output(26, GPIO.HIGH):        # Rakel runter (Endschalter)
+            os.system('sudo fbi -a /dev/fb0 -T 2 -1 /home/pi/Pixtenddemo/bilder/0.png')
+            GPIO.output(13, GPIO.LOW)
+            sleep(10)
+            GPIO.output(13, GPIO.HIGH)
+            print("something")
+            for i in range (99):
+                print(i)
+                for j in range (500):
+                    time = 0.00125
+                    GPIO.setmode(GPIO.BCM)
+                    GPIO.setup(21, GPIO.OUT)
+                    GPIO.setup(20, GPIO.OUT)
+                    GPIO.output(21, GPIO.LOW)
+                    GPIO.output(20, GPIO.HIGH)
+                    sleep(delay)
+                    GPIO.output(20, GPIO.LOW)
+                else:
+                    os.system('sudo fbi -a /dev/fb0 -T 2 -1 /home/pi/Pixtenddemo/bilder/%s.png' % (str(i)))
+                    print("else part")
+                    for k in range (480):
+                        
+                        time = 0.00125
+                        GPIO.setmode(GPIO.BCM)
+                        GPIO.setup(21, GPIO.OUT)
+                        GPIO.setup(20, GPIO.OUT)
+                        GPIO.output(21, GPIO.HIGH)
+                        GPIO.output(20, GPIO.HIGH)
+                        sleep(delay)
+                        GPIO.output(20, GPIO.LOW)
+                        
+                    GPIO.output(13, GPIO.LOW)
+                    sleep(1.25)
+                    GPIO.output(13, GPIO.HIGH)
+            #gehe zurück vor Endschalter
+            
+            while (True):
+                GPIO.setup(21, GPIO.OUT)
+                GPIO.setup(20, GPIO.OUT)
+                GPIO.output(21, GPIO.LOW)
+                GPIO.output(20, GPIO.HIGH)
+                sleep(delay)
+                GPIO.output(20, GPIO.LOW)
+                if (GPIO.input(19) == False):
+                    break
+                
+            GPIO.cleanup()
 
 
 if __name__ == "__main__":
